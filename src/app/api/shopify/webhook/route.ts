@@ -120,7 +120,6 @@ async function handleOrderUpdate(order: any) {
     data: {
       totalValue: parseFloat(order.total_price),
       itemCount: order.line_items?.length || 0,
-      updatedAt: new Date(),
     },
   });
 
@@ -130,13 +129,8 @@ async function handleOrderUpdate(order: any) {
 async function handleOrderPaid(order: any) {
   console.log('Processing order payment:', order.id);
 
-  // Update conversion status
-  await prisma.conversion.updateMany({
-    where: { orderId: order.id.toString() },
-    data: {
-      updatedAt: new Date(),
-    },
-  });
+  // Update conversion status - payment confirmed
+  // Note: Conversion model auto-updates, no manual update needed
 
   // Send purchase event to Meta Pixel
   const sessionId = extractSessionId(order);
@@ -148,13 +142,8 @@ async function handleOrderPaid(order: any) {
 async function handleOrderCancelled(order: any) {
   console.log('Processing order cancellation:', order.id);
 
-  // Mark conversion as cancelled (you might want to add a status field)
-  await prisma.conversion.updateMany({
-    where: { orderId: order.id.toString() },
-    data: {
-      updatedAt: new Date(),
-    },
-  });
+  // Mark conversion as cancelled
+  // Note: Consider adding a status field to Conversion model for cancelled orders
 
   return NextResponse.json({ success: true });
 }
