@@ -1,0 +1,426 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Landing Page</title>
+</head>
+<body>
+    <h1>Test Landing Page</h1>
+    <p>This is a test page for the attribution analytics script.</p>
+    <button id="test-button">Test Button</button>
+
+    <script>
+        (function() {
+            'use strict';
+
+            const config = {
+                apiEndpoint: 'http://localhost:3001/api/tracking',
+                debug: true,
+                sessionTimeout: 30 * 60 * 1000, // 30 minutes
+                heartbeatInterval: 30 * 1000, // 30 seconds
+            };
+
+            // Utility functions
+            function log(...args) {
+                if (config.debug) {
+                    console.log('[Attribution Analytics]', ...args);
+                }
+            }
+
+            function generateId() {
+                return Date.now().toString(36) + Math.random().toString(36).substr(2);
+            }
+
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.pop().split(';').shift();
+                return null;
+            }
+
+            function setCookie(name, value, days = 30) {
+                const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
+                document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Strict`;
+            }
+
+            function getUrlParams() {
+                const params = new URLSearchParams(window.location.search);
+                return {
+                    utmSource: params.get('utm_source'),
+                    utmMedium: params.get('utm_medium'),
+                    utmCampaign: params.get('utm_campaign'),
+                    utmTerm: params.get('utm_term'),
+                    utmContent: params.get('utm_content'),
+                    fbclid: params.get('fbclid'),
+                    gclid: params.get('gclid'),
+                    ttclid: params.get('ttclid'),
+                };
+            }
+
+            function getDeviceInfo() {
+                const ua = navigator.userAgent;
+                let deviceType = 'desktop';
+
+                if (/tablet|ipad|playbook|silk/i.test(ua)) {
+                    deviceType = 'tablet';
+                } else if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(ua)) {
+                    deviceType = 'mobile';
+                }
+
+                let browser = 'unknown';
+                if (ua.includes('Chrome')) browser = 'chrome';
+                else if (ua.includes('Firefox')) browser = 'firefox';
+                else if (ua.includes('Safari')) browser = 'safari';
+                else if (ua.includes('Edge')) browser = 'edge';
+
+                let os = 'unknown';
+                if (ua.includes('Windows')) os = 'windows';
+                else if (ua.includes('Mac')) os = 'macos';
+                else if (ua.includes('Linux')) os = 'linux';
+                else if (ua.includes('Android')) os = 'android';
+                else if (ua.includes('iOS')) os = 'ios';
+
+                return { deviceType, browser, os };
+            }
+
+            async function sendEvent(type, data) {
+                try {
+                    const response = await fetch(config.apiEndpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ type, data }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    log('Event sent successfully:', type, result);
+                    return result;
+                } catch (error) {
+                    log('Error sending event:', type, error);
+                    return null;
+                }
+            }
+
+            // Session management
+            class SessionManager {
+                constructor() {
+                    this.sessionId = this.getOrCreateSessionId();
+                    this.visitorId = this.getOrCreateVisitorId();
+                    this.startTime = Date.now();
+                    this.lastActivity = Date.now();
+                    this.pageViewCount = 0;
+                    this.urlParams = getUrlParams();
+                    this.deviceInfo = getDeviceInfo();
+                }
+
+                getOrCreateSessionId() {
+                    const existing = sessionStorage.getItem('aa_session_id');
+                    if (existing) return existing;
+
+                    const newId = generateId();
+                    sessionStorage.setItem('aa_session_id', newId);
+                    return newId;
+                }
+
+                getOrCreateVisitorId() {
+                    const existing = getCookie('aa_visitor_id');
+                    if (existing) return existing;
+
+                    const newId = generateId();
+                    setCookie('aa_visitor_id', newId, 365); // 1 year
+                    return newId;
+                }
+
+                async startSession() {
+                    const sessionData = {
+                        sessionId: this.sessionId,
+                        visitorId: this.visitorId,
+                        userAgent: navigator.userAgent,
+                        ipAddress: null, // Will be detected server-side
+                        ...this.urlParams,
+                        referrer: document.referrer,
+                        landingPage: window.location.href,
+                        ...this.deviceInfo,
+                        country: null, // Will be detected server-side
+                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        language: navigator.language,
+                    };
+
+                    log('Starting session:', sessionData);
+                    await sendEvent('session_start', sessionData);
+                }
+
+                updateActivity() {
+                    this.lastActivity = Date.now();
+                }
+
+                isSessionExpired() {
+                    return Date.now() - this.lastActivity > config.sessionTimeout;
+                }
+            }
+
+            // Performance monitoring
+            class PerformanceMonitor {
+                constructor() {
+                    this.loadTime = null;
+                    this.lcpTime = null;
+                    this.fidTime = null;
+                }
+
+                measureLoadTime() {
+                    if (window.performance && window.performance.timing) {
+                        const timing = window.performance.timing;
+                        this.loadTime = timing.loadEventEnd - timing.navigationStart;
+                    }
+                }
+
+                measureLCP() {
+                    if ('PerformanceObserver' in window) {
+                        try {
+                            const observer = new PerformanceObserver((list) => {
+                                const entries = list.getEntries();
+                                const lastEntry = entries[entries.length - 1];
+                                this.lcpTime = lastEntry.startTime;
+                            });
+                            observer.observe({ entryTypes: ['largest-contentful-paint'] });
+                        } catch (e) {
+                            // LCP not supported
+                        }
+                    }
+                }
+
+                measureFID() {
+                    if ('PerformanceObserver' in window) {
+                        try {
+                            const observer = new PerformanceObserver((list) => {
+                                const entries = list.getEntries();
+                                entries.forEach((entry) => {
+                                    if (entry.name === 'first-input') {
+                                        this.fidTime = entry.processingStart - entry.startTime;
+                                    }
+                                });
+                            });
+                            observer.observe({ entryTypes: ['first-input'] });
+                        } catch (e) {
+                            // FID not supported
+                        }
+                    }
+                }
+
+                getMetrics() {
+                    return {
+                        loadTime: this.loadTime,
+                        lcpTime: this.lcpTime,
+                        fidTime: this.fidTime,
+                    };
+                }
+            }
+
+            // Event tracking
+            class EventTracker {
+                constructor(sessionManager) {
+                    this.sessionManager = sessionManager;
+                    this.performanceMonitor = new PerformanceMonitor();
+                    this.scrollDepth = 0;
+                    this.timeOnPage = 0;
+                    this.pageStartTime = Date.now();
+                }
+
+                async trackPageView() {
+                    // Wait for performance metrics
+                    setTimeout(() => {
+                        this.performanceMonitor.measureLoadTime();
+                    }, 100);
+
+                    this.performanceMonitor.measureLCP();
+                    this.performanceMonitor.measureFID();
+
+                    const pageViewData = {
+                        sessionId: this.sessionManager.sessionId,
+                        visitorId: this.sessionManager.visitorId,
+                        pageUrl: window.location.href,
+                        pageTitle: document.title,
+                        referrer: document.referrer,
+                        timestamp: new Date().toISOString(),
+                        ...this.performanceMonitor.getMetrics(),
+                    };
+
+                    log('Page view:', pageViewData);
+                    await sendEvent('page_view', pageViewData);
+                    this.sessionManager.pageViewCount++;
+                }
+
+                trackClick(event) {
+                    const element = event.target;
+                    const interactionData = {
+                        sessionId: this.sessionManager.sessionId,
+                        visitorId: this.sessionManager.visitorId,
+                        eventName: 'click',
+                        pageUrl: window.location.href,
+                        elementId: element.id,
+                        elementClass: element.className,
+                        elementText: element.textContent?.slice(0, 100) || '',
+                        clickX: event.clientX,
+                        clickY: event.clientY,
+                        scrollDepth: this.scrollDepth,
+                        timeOnPage: Date.now() - this.pageStartTime,
+                    };
+
+                    log('Click interaction:', interactionData);
+                    sendEvent('interaction', interactionData);
+                    this.sessionManager.updateActivity();
+                }
+
+                trackFormSubmit(event) {
+                    const form = event.target;
+                    const interactionData = {
+                        sessionId: this.sessionManager.sessionId,
+                        visitorId: this.sessionManager.visitorId,
+                        eventName: 'form_submit',
+                        pageUrl: window.location.href,
+                        elementId: form.id,
+                        elementClass: form.className,
+                        customData: {
+                            formAction: form.action,
+                            formMethod: form.method,
+                            fieldCount: form.elements.length,
+                        },
+                        scrollDepth: this.scrollDepth,
+                        timeOnPage: Date.now() - this.pageStartTime,
+                    };
+
+                    log('Form submit:', interactionData);
+                    sendEvent('interaction', interactionData);
+                    this.sessionManager.updateActivity();
+                }
+
+                trackScroll() {
+                    const scrolled = window.pageYOffset;
+                    const maxScroll = document.body.scrollHeight - window.innerHeight;
+                    this.scrollDepth = Math.round((scrolled / maxScroll) * 100);
+                }
+
+                setupEventListeners() {
+                    // Click tracking
+                    document.addEventListener('click', (e) => this.trackClick(e), true);
+
+                    // Form submit tracking
+                    document.addEventListener('submit', (e) => this.trackFormSubmit(e), true);
+
+                    // Scroll tracking
+                    let scrollTimer;
+                    window.addEventListener('scroll', () => {
+                        clearTimeout(scrollTimer);
+                        scrollTimer = setTimeout(() => this.trackScroll(), 100);
+                    });
+
+                    // Page visibility
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.hidden) {
+                            this.sessionManager.updateActivity();
+                        }
+                    });
+
+                    // Before unload
+                    window.addEventListener('beforeunload', () => {
+                        // Send final interaction data
+                        const finalData = {
+                            sessionId: this.sessionManager.sessionId,
+                            visitorId: this.sessionManager.visitorId,
+                            eventName: 'page_exit',
+                            pageUrl: window.location.href,
+                            timeOnPage: Date.now() - this.pageStartTime,
+                            scrollDepth: this.scrollDepth,
+                        };
+                        navigator.sendBeacon?.(config.apiEndpoint, JSON.stringify({
+                            type: 'interaction',
+                            data: finalData
+                        }));
+                    });
+                }
+            }
+
+            // Main initialization
+            async function init() {
+                log('Initializing Attribution Analytics...');
+
+                const sessionManager = new SessionManager();
+                const eventTracker = new EventTracker(sessionManager);
+
+                // Start session
+                await sessionManager.startSession();
+
+                // Track page view
+                await eventTracker.trackPageView();
+
+                // Setup event listeners
+                eventTracker.setupEventListeners();
+
+                // Heartbeat to keep session alive
+                setInterval(() => {
+                    if (!sessionManager.isSessionExpired()) {
+                        sessionManager.updateActivity();
+                    }
+                }, config.heartbeatInterval);
+
+                log('Attribution Analytics initialized successfully');
+            }
+
+            // Auto-initialize when DOM is ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+            // Global API for manual event tracking
+            window.AttributionAnalytics = {
+                trackEvent: function(eventName, customData = {}) {
+                    const sessionId = sessionStorage.getItem('aa_session_id');
+                    const visitorId = getCookie('aa_visitor_id');
+
+                    if (!sessionId || !visitorId) {
+                        log('Session not initialized for custom event');
+                        return;
+                    }
+
+                    const eventData = {
+                        sessionId,
+                        visitorId,
+                        eventName,
+                        pageUrl: window.location.href,
+                        customData,
+                        timestamp: new Date().toISOString(),
+                    };
+
+                    sendEvent('interaction', eventData);
+                },
+
+                trackConversion: function(conversionData) {
+                    const sessionId = sessionStorage.getItem('aa_session_id');
+
+                    if (!sessionId) {
+                        log('Session not initialized for conversion');
+                        return;
+                    }
+
+                    const fullConversionData = {
+                        sessionId,
+                        ...conversionData,
+                        timestamp: new Date().toISOString(),
+                    };
+
+                    sendEvent('conversion', fullConversionData);
+                }
+            };
+        })();
+    </script>
+</body>
+</html>

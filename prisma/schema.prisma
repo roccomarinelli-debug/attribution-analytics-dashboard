@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id          String       @id @default(cuid())
+  sessionId   String       @unique
+  visitorId   String
+  userId      String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  expiresAt   DateTime
+  userAgent   String?
+  ipAddress   String?
+  deviceType  String?
+  browser     String?
+  os          String?
+  country     String?
+  timezone    String?
+  language    String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+  referrer    String?
+  landingPage String?
+  fbclid      String?
+  gclid       String?
+  ttclid      String?
+  conversions Conversion[]
+  events      Event[]
+  touchpoints Touchpoint[]
+
+  @@map("sessions")
+}
+
+model Touchpoint {
+  id           String   @id @default(cuid())
+  sessionId    String
+  touchpointId String   @unique
+  createdAt    DateTime @default(now())
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  utmTerm      String?
+  utmContent   String?
+  pageUrl      String
+  pageTitle    String?
+  referrer     String?
+  fbclid       String?
+  gclid        String?
+  deviceType   String?
+  browser      String?
+  timestamp    DateTime
+  session      Session  @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+
+  @@map("touchpoints")
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  sessionId String
+  eventName String
+  createdAt DateTime @default(now())
+  pageUrl   String?
+  eventData String?
+  timestamp DateTime
+  session   Session  @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+
+  @@map("events")
+}
+
+model LandingPageEvent {
+  id           String   @id @default(cuid())
+  sessionId    String
+  visitorId    String
+  eventName    String
+  createdAt    DateTime @default(now())
+  pageUrl      String
+  pageTitle    String?
+  referrer     String?
+  elementId    String?
+  elementClass String?
+  elementText  String?
+  clickX       Int?
+  clickY       Int?
+  scrollDepth  Int?
+  timeOnPage   Int?
+  loadTime     Int?
+  lcpTime      Float?
+  fidTime      Float?
+  customData   String?
+
+  @@map("landing_page_events")
+}
+
+model Conversion {
+  id                    String               @id @default(cuid())
+  sessionId             String
+  conversionId          String               @unique
+  createdAt             DateTime             @default(now())
+  orderId               String?
+  orderNumber           String?
+  totalValue            Float
+  currency              String               @default("USD")
+  itemCount             Int?
+  customerId            String?
+  email                 String?
+  firstClickUtmSource   String?
+  firstClickUtmMedium   String?
+  firstClickUtmCampaign String?
+  lastClickUtmSource    String?
+  lastClickUtmMedium    String?
+  lastClickUtmCampaign  String?
+  attributionModel      String?
+  attributionData       String?
+  touchpointCount       Int?
+  daysToPurchase        Int?
+  sessionsToConversion  Int?
+  lineItems             ConversionLineItem[]
+  session               Session              @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+
+  @@map("conversions")
+}
+
+model ConversionLineItem {
+  id           String     @id @default(cuid())
+  conversionId String
+  productId    String?
+  variantId    String?
+  sku          String?
+  productName  String?
+  category     String?
+  quantity     Int
+  price        Float
+  conversion   Conversion @relation(fields: [conversionId], references: [id], onDelete: Cascade)
+
+  @@map("conversion_line_items")
+}
+
+model Campaign {
+  id             String    @id @default(cuid())
+  name           String
+  source         String
+  medium         String
+  campaign       String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  startDate      DateTime?
+  endDate        DateTime?
+  budget         Float?
+  isActive       Boolean   @default(true)
+  clicks         Int       @default(0)
+  sessions       Int       @default(0)
+  conversions    Int       @default(0)
+  revenue        Float     @default(0)
+  spend          Float     @default(0)
+  ctr            Float?
+  conversionRate Float?
+  cpa            Float?
+  roas           Float?
+
+  @@unique([source, medium, campaign])
+  @@map("campaigns")
+}
+
+model DailyMetrics {
+  id                 String   @id @default(cuid())
+  date               DateTime @unique
+  sessions           Int      @default(0)
+  uniqueVisitors     Int      @default(0)
+  pageViews          Int      @default(0)
+  bounceRate         Float?
+  avgSessionDuration Float?
+  conversions        Int      @default(0)
+  revenue            Float    @default(0)
+  avgOrderValue      Float?
+  organicSessions    Int      @default(0)
+  paidSessions       Int      @default(0)
+  socialSessions     Int      @default(0)
+  emailSessions      Int      @default(0)
+  referralSessions   Int      @default(0)
+  directSessions     Int      @default(0)
+  avgPageLoadTime    Float?
+  avgLCP             Float?
+  avgFID             Float?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("daily_metrics")
+}
+
+model FunnelStep {
+  id                String   @id @default(cuid())
+  name              String
+  stepOrder         Int
+  eventPattern      String
+  createdAt         DateTime @default(now())
+  totalSessions     Int      @default(0)
+  completedSessions Int      @default(0)
+  dropoffRate       Float?
+  avgTimeToComplete Float?
+
+  @@unique([name, stepOrder])
+  @@map("funnel_steps")
+}
+
+model Alert {
+  id            String       @id @default(cuid())
+  name          String
+  type          String
+  condition     String
+  isActive      Boolean      @default(true)
+  lastTriggered DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  events        AlertEvent[]
+
+  @@map("alerts")
+}
+
+model AlertEvent {
+  id          String    @id @default(cuid())
+  alertId     String
+  triggeredAt DateTime  @default(now())
+  severity    String
+  message     String
+  data        String?
+  resolved    Boolean   @default(false)
+  resolvedAt  DateTime?
+  alert       Alert     @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@map("alert_events")
+}
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  name        String?
+  role        String    @default("viewer")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  @@map("users")
+}
