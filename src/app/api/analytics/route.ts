@@ -141,9 +141,6 @@ export async function GET(request: NextRequest) {
       where: whereClause,
       orderBy: { createdAt: 'desc' },
       take: 1000, // Limit to prevent large responses
-      include: {
-        // Add any related data you want to include
-      },
     });
 
     return NextResponse.json({
