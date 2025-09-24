@@ -80,11 +80,11 @@ async function processConversion(orderData: any, attribution: any, customerJourn
         sessionsToConversion: calculateSessionsToConversion(customerJourney),
 
         // Store detailed attribution data
-        attributionData: {
+        attributionData: JSON.stringify({
           customer_journey: customerJourney,
           attribution_models: attributionModels,
           original_attribution: attribution,
-        },
+        }),
       },
     });
 
